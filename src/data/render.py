@@ -13,7 +13,7 @@ import numpy as np
 import json
 import h5py
 from . import BaseDataset
-
+import PIL
 from PIL import Image
 import torch
 import torchvision.transforms as T
@@ -94,7 +94,13 @@ class RENDER(BaseDataset):
         scan_dep[mask == 0] = 0  # mask掉背景
         dep[mask == 0] = 0
         rgb[mask == 0] = [0, 0, 0]
-        num_of_samples = int(np.sum(dep != 0) * 0.05)  # 缺失95%
+        num_of_samples = int(np.sum(dep != 0) * 0.1)  # 缺失90%
+
+         # 给扫描深度在模拟的基础上添加扰动（暂时使用的方法）
+        noise_range = dep.max() - dep[dep != 0].min()
+        noise = noise_range * (np.random.normal(0, 10, size=dep.shape)) * 0.01  # 8%正态的随机扰动
+        noise[dep == 0] = 0
+        scan_dep = scan_dep + noise
 
         rgb = Image.fromarray(rgb, mode='RGB')
         dep = Image.fromarray(dep.astype('float32'), mode='F')

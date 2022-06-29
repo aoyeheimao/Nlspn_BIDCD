@@ -50,7 +50,7 @@ class VALI(BaseDataset):
             self.raw_dept = sorted(glob.glob(os.path.join(self.dir, self.fold, '*_depth_map.tiff')))
             self.rgb = sorted(glob.glob(os.path.join(self.dir, self.fold, '*_bright.bmp')))       
 
-            height, width = (1200,1920)   # (400, 640)  # (720, 1280)
+            height, width = (480,640)   # (400, 640)  # (720, 1280)
             crop_size = (480, 640)  # (384,512)
 
 
@@ -96,20 +96,20 @@ class VALI(BaseDataset):
 
         if self.axletree:
             rgb = np.array(cv2.cvtColor(cv2.imread(self.rgb[idx], 0), cv2.COLOR_GRAY2RGB))[450:930, 500:1140,:]  # rgb模拟的三通道灰度图
-            dep = np.array(cv2.imread(self.mask[idx], 2))[450:930, 500:1140] / (100)  # 恢复的目标深度
-            scan_dep = np.array(cv2.imread(self.raw_dept[idx], 2))[450:930, 500:1140] / (100)  # 工件扫描深度图
-            import scipy.signal as signal
-            scan_dep = signal.medfilt(scan_dep, (5, 5))
-            scan_dep[dep == 0] = 0  # mask掉不用学的
-            # num_of_samples = int(np.sum(dep != 0) * 0.7)  # 缺失70%
+            dep = np.array(cv2.imread(self.mask[idx], 2))[450:930, 500:1140] / (1000)  # 恢复的目标深度
+            scan_dep = np.array(cv2.imread(self.raw_dept[idx], 2))[450:930, 500:1140] / (1000)  # 工件扫描深度图
+            # import scipy.signal as signal
+            # scan_dep = signal.medfilt(scan_dep, (5, 5))
+            # scan_dep[dep == 0] = 0  # mask掉不用学的
+            # num_of_samples = int(np.sum(dep != 0) * 0.5)  # 缺失70%
             print('max:', scan_dep.max())
             print('shape of rgb,mask,scandep', rgb.shape, dep.shape, scan_dep.shape)
 
         
         if self.lgj:
             rgb = np.array(cv2.cvtColor(cv2.imread(self.rgb[idx], 0), cv2.COLOR_GRAY2RGB))  # rgb模拟的三通道灰度图
-            dep = np.array(cv2.imread(self.gt_depth[idx], 2)) / (100)  # 恢复的目标深度
-            scan_dep = np.array(cv2.imread(self.raw_dept[idx], 2)) / (100)  # 工件扫描深度图
+            dep = np.array(cv2.imread(self.gt_depth[idx], 2)) / (1000)  # 恢复的目标深度
+            scan_dep = np.array(cv2.imread(self.raw_dept[idx], 2)) / (1000)  # 工件扫描深度图
             import scipy.signal as signal
             scan_dep = signal.medfilt(scan_dep, (3, 3))
             scan_dep[dep == 0] = 0  # mask掉不用学的

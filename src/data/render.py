@@ -18,7 +18,7 @@ from PIL import Image
 import torch
 import torchvision.transforms as T
 import torchvision.transforms.functional as TF
-
+from sklearn.linear_model import LinearRegression
 
 
 class RENDER(BaseDataset):
@@ -36,6 +36,7 @@ class RENDER(BaseDataset):
             self.dir = '..'  # dir_path
             self.fold = 'data/render/train/*'
             self.fold = 'data/render/axletree_train/*'
+            self.fold = 'data/render/one_side_axletree_train/*'
             self.gt_depth = sorted(glob.glob(os.path.join(self.dir, self.fold,'depth', '*.exr')))
             self.raw_dept = sorted(glob.glob(os.path.join(self.dir, self.fold,'speckle_depth', '*.exr')))
             self.mask = sorted(glob.glob(os.path.join(self.dir, self.fold,'mask_visib', '*.png')))
@@ -44,6 +45,7 @@ class RENDER(BaseDataset):
             self.dir = '..'  # dir_path
             self.fold = 'data/render/test/*'
             self.fold = 'data/render/axletree_test/*'
+            self.fold = 'data/render/one_side_axletree_test/*'
             self.gt_depth = sorted(glob.glob(os.path.join(self.dir, self.fold,'depth' ,'*.exr')))
             self.raw_dept = sorted(glob.glob(os.path.join(self.dir, self.fold,'speckle_depth' ,'*.exr')))
             self.mask = sorted(glob.glob(os.path.join(self.dir, self.fold,'mask_visib', '*.png')))
@@ -94,11 +96,15 @@ class RENDER(BaseDataset):
         scan_dep[mask == 0] = 0  # mask掉背景
         dep[mask == 0] = 0
         rgb[mask == 0] = [0, 0, 0]
-        num_of_samples = int(np.sum(dep != 0) * 0.1)  # 缺失90%
 
          # 给扫描深度在模拟的基础上添加扰动（暂时使用的方法）
         noise_range = dep.max() - dep[dep != 0].min()
-        noise = noise_range * (np.random.normal(0, 10, size=dep.shape)) * 0.01  # 8%正态的随机扰动
+        if self.augment and self.mode == 'train':
+            noise_ratio = np.random.uniform(0.005, 0.015)
+        else:
+            noise_ratio = 0.01
+
+        noise = noise_range * (np.random.normal(0, 10, size=dep.shape)) * noise_ratio  # 0.5%正态的10方差随机扰动
         noise[dep == 0] = 0
         scan_dep = scan_dep + noise
 
@@ -108,16 +114,20 @@ class RENDER(BaseDataset):
         # print(dep.size,rgb.size)
 
         if self.augment and self.mode == 'train':
-            _scale = np.random.uniform(0.3, 1.2)
+            num_of_samples = int(np.sum(mask != 0) * np.random.uniform(0.2, 0.8))  # 缺失20-80%
+            _scale = np.random.uniform(0.3, 0.7)
             scale = np.int(self.height * _scale)
-            degree = np.random.uniform(-90, 90.0)
+            degree = np.random.uniform(-5, 5.0)  # 旋转
             flip = np.random.uniform(0.0, 1.0)
 
             if flip > 0.5:
+
                 rgb = TF.hflip(rgb)
                 dep = TF.hflip(dep)
                 scan_dep = TF.hflip(scan_dep)
 
+            import warnings
+            warnings.filterwarnings('ignore')
             rgb = TF.rotate(rgb, angle=degree,
                             resample=Image.NEAREST)  # Argument resample is deprecated and will be removed since v0.10.0. Used interpolation instead
             #  UserWarning: Argument interpolation should be of type InterpolationMode instead of int. Please, use InterpolationMode enum.
@@ -126,7 +136,7 @@ class RENDER(BaseDataset):
                                  fill=(0,))  # bug appear when using torchvision==0.5.0, by adding fill=(0,) fix it.
 
             t_rgb = T.Compose([
-                T.Resize(scale),
+                T.Resize(scale, interpolation= T.InterpolationMode.NEAREST),
                 T.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4),
                 T.CenterCrop(self.crop_size),
                 T.ToTensor(),
@@ -134,7 +144,7 @@ class RENDER(BaseDataset):
             ])
 
             t_dep = T.Compose([
-                T.Resize(scale,interpolation=0),
+                T.Resize(scale, interpolation= T.InterpolationMode.NEAREST),
                 T.CenterCrop(self.crop_size),
                 self.ToNumpy(),
                 T.ToTensor()
@@ -152,20 +162,24 @@ class RENDER(BaseDataset):
 
             dep = dep / _scale  # 近大远小
             scan_dep = scan_dep / _scale
+            noise_range = noise_range / _scale
 
             K = self.K.clone()
             K[0] = K[0] * _scale
             K[1] = K[1] * _scale
         else:
+            _scale = 0.5  # np.random.uniform(0.1, 1.0)
+            scale = np.int(self.height * _scale)
+            num_of_samples = int(np.sum(mask != 0) *0.5)  # 缺失50%
             t_rgb = T.Compose([
-                T.Resize(self.height),
+                T.Resize(scale, interpolation= T.InterpolationMode.NEAREST),
                 # T.CenterCrop(self.crop_size), # 不剪裁
                 T.ToTensor(),
                 T.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
             ])
 
             t_dep = T.Compose([
-                T.Resize(self.height),
+                T.Resize(scale, interpolation= T.InterpolationMode.NEAREST),
                 # T.CenterCrop(self.crop_size),
                 self.ToNumpy(),
                 T.ToTensor()
@@ -184,19 +198,20 @@ class RENDER(BaseDataset):
             K = self.K.clone()
 
         if self.depth_type == 'generate':
-            dep_sp = self.get_sparse_depth(dep, self.args.num_sample)  # 稀疏深度的采样方式，后续可以通过raw depth替换。
+            dep_sp = self.get_sparse_depth(dep_sp, num_of_samples, noise_range) # 稀疏深度的采样方式，后续可以通过raw depth替换。
         elif self.depth_type == 'scan':
             dep_sp = scan_dep
         elif self.depth_type == 'scan+generate':  # 先散斑再下采样
             dep_sp = scan_dep
-            dep_sp = self.get_sparse_depth(dep_sp, num_of_samples)
+            dep_sp = self.get_sparse_depth(dep_sp, num_of_samples, noise_range)
 
 
         output = {'rgb': rgb, 'dep': dep_sp, 'gt': dep, 'K': K}
 
         return output
 
-    def get_sparse_depth(self, dep, num_sample):
+    def get_sparse_depth(self, dep, num_sample, noise_range):
+
         channel, height, width = dep.shape
 
         assert channel == 1
@@ -214,74 +229,106 @@ class RENDER(BaseDataset):
 
         dep_sp = dep * mask.type_as(dep)
 
-        return dep_sp
+        ###  大离群噪声
+        if self.mode == 'train':
+            bn_ratio = np.random.uniform(0, 0.06)
+        else:
+            bn_ratio = 0.03
 
-    def show_data(self, item):
+        num_nosie_sample = int(num_sample*bn_ratio)
+        noise_alpha = [3, -3, 5, -5]
+        i=1
+        for a in noise_alpha:
 
-        cleaned_depth, gt_depth, masks_workspace, raw_dept, rgb, gray = self[item]
+            noise_value = a * noise_range
 
-        plt.subplot(231)
-        plt.imshow(cleaned_depth), plt.axis('off'), plt.title('cleaned_depth')
-        plt.subplot(232)
-        plt.imshow(gt_depth), plt.axis('off'), plt.title('gt_depth')
-        plt.subplot(233)
-        plt.imshow(masks_workspace), plt.axis('off'), plt.title('masks_workspace')
-        plt.subplot(234)
-        plt.imshow(raw_dept), plt.axis('off'), plt.title('raw_dept')
-        plt.subplot(235)
-        plt.imshow(np.array(rgb)), plt.axis('off'), plt.axis('off'), plt.title('rgb')
-        plt.subplot(236)
-        plt.imshow(np.array(gray)), plt.axis('off'), plt.axis('off'), plt.title('gray')
+            idx_nnz = torch.nonzero(dep.view(-1) > 0.0001, as_tuple=False)
+            num_idx = len(idx_nnz)
+            idx_sample = torch.randperm(num_idx)[:num_nosie_sample]
 
-        plt.show()
+            idx_nnz = idx_nnz[idx_sample[:]]
 
-    def depth_image_to_color_pcd(self, item, scale=1, pose=np.identity(4)):
+            mask = torch.zeros((channel * height * width))
+            mask[idx_nnz] = noise_value
+            mask = mask.view((channel, height, width))
 
-        cleaned_depth, gt_depth, masks_workspace, raw_dept, rgb, gray = self[item]
+            # noise = noise_range * (np.random.normal(0, 10, size=mask.shape)) * 0.01
 
-        rgb = gray  # 模拟灰度图像
+            dep_sp = dep_sp + mask.type_as(dep)
+            if i //2 == i/2:
+                num_nosie_sample = int(num_nosie_sample*0.5)
+            i = i+1
 
-        depth = np.array(gt_depth)
-        K = np.array([[1.01015161e+03, 0.00000000, 6.72047180e+02],
-                      [0.00000000, 1.01018524e+03, 4.86441254e+02],
-                      [0.00000000, 0.00000000, 1.00000000]])
-        u = range(0, rgb.shape[1])
-        v = range(0, rgb.shape[0])
+        ###
 
-        u, v = np.meshgrid(u, v)
-        u = u.astype(float)
-        v = v.astype(float)
+        return torch.clamp(dep_sp,0,999999)
 
-        Z = depth.astype(float) / scale
-        X = (u - K[0, 2]) * Z / K[0, 0]
-        Y = (v - K[1, 2]) * Z / K[1, 1]
+    # def show_data(self, item):
 
-        X = np.ravel(X)
-        Y = np.ravel(Y)
-        Z = np.ravel(Z)
+    #     cleaned_depth, gt_depth, masks_workspace, raw_dept, rgb, gray = self[item]
 
-        valid = Z > 0
+    #     plt.subplot(231)
+    #     plt.imshow(cleaned_depth), plt.axis('off'), plt.title('cleaned_depth')
+    #     plt.subplot(232)
+    #     plt.imshow(gt_depth), plt.axis('off'), plt.title('gt_depth')
+    #     plt.subplot(233)
+    #     plt.imshow(masks_workspace), plt.axis('off'), plt.title('masks_workspace')
+    #     plt.subplot(234)
+    #     plt.imshow(raw_dept), plt.axis('off'), plt.title('raw_dept')
+    #     plt.subplot(235)
+    #     plt.imshow(np.array(rgb)), plt.axis('off'), plt.axis('off'), plt.title('rgb')
+    #     plt.subplot(236)
+    #     plt.imshow(np.array(gray)), plt.axis('off'), plt.axis('off'), plt.title('gray')
 
-        X = X[valid]
-        Y = Y[valid]
-        Z = Z[valid]
+    #     plt.show()
 
-        position = np.vstack((X, Y, Z, np.ones(len(X))))
-        position = np.dot(pose, position)
+    # def depth_image_to_color_pcd(self, item, scale=1, pose=np.identity(4)):
 
-        R = np.ravel(rgb[:, :, 0])[valid]
-        G = np.ravel(rgb[:, :, 1])[valid]
-        B = np.ravel(rgb[:, :, 2])[valid]
+    #     cleaned_depth, gt_depth, masks_workspace, raw_dept, rgb, gray = self[item]
 
-        points = np.transpose(np.vstack((position[0:3, :], R, G, B)))  # .tolist()
+    #     rgb = gray  # 模拟灰度图像
 
-        colors = points[:, 3:6] / 255
-        points = points[:, :3]
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(points)
-        pcd.colors = o3d.utility.Vector3dVector(colors)
+    #     depth = np.array(gt_depth)
+    #     K = np.array([[1.01015161e+03, 0.00000000, 6.72047180e+02],
+    #                   [0.00000000, 1.01018524e+03, 4.86441254e+02],
+    #                   [0.00000000, 0.00000000, 1.00000000]])
+    #     u = range(0, rgb.shape[1])
+    #     v = range(0, rgb.shape[0])
 
-        return pcd
+    #     u, v = np.meshgrid(u, v)
+    #     u = u.astype(float)
+    #     v = v.astype(float)
+
+    #     Z = depth.astype(float) / scale
+    #     X = (u - K[0, 2]) * Z / K[0, 0]
+    #     Y = (v - K[1, 2]) * Z / K[1, 1]
+
+    #     X = np.ravel(X)
+    #     Y = np.ravel(Y)
+    #     Z = np.ravel(Z)
+
+    #     valid = Z > 0
+
+    #     X = X[valid]
+    #     Y = Y[valid]
+    #     Z = Z[valid]
+
+    #     position = np.vstack((X, Y, Z, np.ones(len(X))))
+    #     position = np.dot(pose, position)
+
+    #     R = np.ravel(rgb[:, :, 0])[valid]
+    #     G = np.ravel(rgb[:, :, 1])[valid]
+    #     B = np.ravel(rgb[:, :, 2])[valid]
+
+    #     points = np.transpose(np.vstack((position[0:3, :], R, G, B)))  # .tolist()
+
+    #     colors = points[:, 3:6] / 255
+    #     points = points[:, :3]
+    #     pcd = o3d.geometry.PointCloud()
+    #     pcd.points = o3d.utility.Vector3dVector(points)
+    #     pcd.colors = o3d.utility.Vector3dVector(colors)
+
+    #     return pcd
 
 # #
 # #

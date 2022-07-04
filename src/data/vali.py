@@ -40,19 +40,21 @@ class VALI(BaseDataset):
             self.mask = sorted(glob.glob(os.path.join(self.dir, self.fold, '*_mask.png')))   
 
             height, width = (480,640)   # (400, 640)  # (720, 1280)
-            crop_size = (384, 512)  # (216,384)
+            crop_size = (480, 640)  # (216,384)
+            self.ratio = 1
 
         self.lgj = False   
         if self.lgj:
             self.dir = '..'  # dir_path
-            self.fold = 'data/mixedaispilt/test/011' # *
-            self.gt_depth = sorted(glob.glob(os.path.join(self.dir, self.fold, '*_depth_gt.tiff')))
+            self.fold = 'data/mixedaispilt/test/*' # *
+            self.fold = 'data/lgj/vali' # *
+            self.gt_depth = sorted(glob.glob(os.path.join(self.dir, self.fold, '*_depth_map.tiff')))
             self.raw_dept = sorted(glob.glob(os.path.join(self.dir, self.fold, '*_depth_map.tiff')))
             self.rgb = sorted(glob.glob(os.path.join(self.dir, self.fold, '*_bright.bmp')))       
 
-            height, width = (480,640)   # (400, 640)  # (720, 1280)
-            crop_size = (480, 640)  # (384,512)
-
+            height, width = (1200, 1920)  # (400, 640)  # (720, 1280)
+            crop_size = (480, 640)
+            self.ratio = 0.4
 
 
         # 额外的参数, K是NYU数据集借来的
@@ -95,30 +97,83 @@ class VALI(BaseDataset):
         scan_dep = np.array(cv2.imread(self.raw_dept[idx], 2))[::3, ::3] / 100  # 工件扫描深度图
 
         if self.axletree:
-            rgb = np.array(cv2.cvtColor(cv2.imread(self.rgb[idx], 0), cv2.COLOR_GRAY2RGB))[450:930, 500:1140,:]  # rgb模拟的三通道灰度图
-            dep = np.array(cv2.imread(self.mask[idx], 2))[450:930, 500:1140] / (1000)  # 恢复的目标深度
-            scan_dep = np.array(cv2.imread(self.raw_dept[idx], 2))[450:930, 500:1140] / (1000)  # 工件扫描深度图
+            model_ratio = 10 * 0.4
+            rgb = np.array(cv2.cvtColor(cv2.imread(self.rgb[idx], 0), cv2.COLOR_GRAY2RGB))[550:1030, 600:1240,:]  # rgb模拟的三通道灰度图
+            dep = np.array(cv2.imread(self.mask[idx], 2))[550:1030, 600:1240] / (100)  # 恢复的目标深度
+            scan_dep = np.array(cv2.imread(self.raw_dept[idx], 2))[550:1030, 600:1240] / (100)  # 工件扫描深度图
             # import scipy.signal as signal
-            # scan_dep = signal.medfilt(scan_dep, (5, 5))
+            # scan_dep = signal.medfilt(scan_dep, (3, 3))
             # scan_dep[dep == 0] = 0  # mask掉不用学的
-            # num_of_samples = int(np.sum(dep != 0) * 0.5)  # 缺失70%
-            print('max:', scan_dep.max())
-            print('shape of rgb,mask,scandep', rgb.shape, dep.shape, scan_dep.shape)
+            num_of_samples = int(np.sum(dep != 0) * 0.5)  # 缺失70%
+            # print('max:', scan_dep.max())
+            # print('shape of rgb,mask,scandep', rgb.shape, dep.shape, scan_dep.shape)
+
+            # noise_ratio = 0.005 # np.random.uniform(0.002, 0.006)
+            # noise_range = 2  # dep.max() - dep[dep != 0].min()
+            # noise = noise_range * (np.random.normal(0, 10, size=dep.shape)) * noise_ratio  # 0.5%正态的10方差随机扰动
+            # noise[dep == 0] = 0
+            # scan_dep = scan_dep + noise
+
+            scan_dep[dep == 0] = 0  # mask掉不用学的
+            rgb[dep == 0] = [0, 0, 0]  # mask掉不用学的
+
+            scan_dep[scan_dep > 15.3] = 0
+                # 平面化
+
+            # from sklearn.linear_model import LinearRegression
+            # x, y = np.meshgrid(np.arange(0, scan_dep.shape[1]), np.arange(0, scan_dep.shape[0]))
+            # x = x.reshape([-1, 1])
+            # y = y.reshape([-1, 1])
+            # yx = np.concatenate([y, x], -1)
+            # value = np.clip(scan_dep.reshape(-1, 1), 0, 99999)
+            # mask_nonzero, _ = np.nonzero(value)
+            # yx = yx[mask_nonzero]
+            # value = value[mask_nonzero]
+            # modelRegL = LinearRegression()  # 创建线性回归模型
+            # modelRegL.fit(yx, value)
+            # predict = modelRegL.predict(yx)
+            # scan_dep[yx[:, 0], yx[:, 1]] = predict.reshape(-1)
+
+            # noise_ratio = 0.001
+            # noise_range = scan_dep.max() - scan_dep[scan_dep != 0].min()
+            # noise = noise_range * (np.random.normal(0, 10, size=scan_dep.shape)) * noise_ratio  # 0.5%的10方差的最大最小插值的正态的随机扰动
+            # noise[scan_dep == 0] = 0
+            # scan_dep = scan_dep + noise
+
+            print('maxmin:', scan_dep.max(), scan_dep[scan_dep >0.01].min())
+
+
+            # from sklearn.cluster import KMeans
+            # for i in range(30):
+            #     dep_array = scan_dep.reshape(1, -1, 1)[0]
+            #     X = dep_array
+            #     kmeans = KMeans(n_clusters=2, random_state=0).fit(X)
+            #     mask0 = kmeans.predict(X)
+            #     mask0 = mask0.reshape(dep.shape)
+
+            #     if np.sum(mask0 == 0) < np.sum(mask0 == 1):
+            #         mask0 = abs(1-mask0)
+
+            #     scan_dep = scan_dep * mask0
+
+
+            
 
         
         if self.lgj:
+            model_ratio = 3.2
             rgb = np.array(cv2.cvtColor(cv2.imread(self.rgb[idx], 0), cv2.COLOR_GRAY2RGB))  # rgb模拟的三通道灰度图
-            dep = np.array(cv2.imread(self.gt_depth[idx], 2)) / (1000)  # 恢复的目标深度
-            scan_dep = np.array(cv2.imread(self.raw_dept[idx], 2)) / (1000)  # 工件扫描深度图
-            import scipy.signal as signal
-            scan_dep = signal.medfilt(scan_dep, (3, 3))
+            dep = np.array(cv2.imread(self.gt_depth[idx], 2)) / (100)  # 恢复的目标深度
+            scan_dep = np.array(cv2.imread(self.raw_dept[idx], 2)) / (100)  # 工件扫描深度图
+            # scan_dep = signal.medfilt(scan_dep, (3, 3))
+            # scan_dep[dep == 0] = 0  # mask掉不用学的
+            # print('max:', scan_dep.max())
+            # print('shape of rgb,mask,scandep', rgb.shape, dep.shape, scan_dep.shape)
             scan_dep[dep == 0] = 0  # mask掉不用学的
-            print('max:', scan_dep.max())
-            print('shape of rgb,mask,scandep', rgb.shape, dep.shape, scan_dep.shape)
+            rgb[dep == 0] = [0, 0, 0]  # mask掉不用学的 
 
 
-        scan_dep[dep == 0] = 0  # mask掉不用学的
-        rgb[dep == 0] = [0, 0, 0]  # mask掉不用学的
+
 
         rgb = Image.fromarray(rgb, mode='RGB')
         dep = Image.fromarray(dep.astype('float32'), mode='F')
@@ -144,7 +199,7 @@ class VALI(BaseDataset):
             scan_dep = TF.rotate(scan_dep, angle=degree, resample=Image.NEAREST, fill=(0,))  # bug appear when using torchvision==0.5.0, by adding fill=(0,) fix it.
 
             t_rgb = T.Compose([
-                T.Resize(scale),
+                T.Resize(scale, interpolation = T.InterpolationMode.NEAREST),
                 T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
                 # T.CenterCrop(self.crop_size),
                 T.ToTensor(),
@@ -152,7 +207,7 @@ class VALI(BaseDataset):
             ])
 
             t_dep = T.Compose([
-                T.Resize(scale),
+                T.Resize(scale, interpolation = T.InterpolationMode.NEAREST),
                 # T.CenterCrop(self.crop_size),
                 self.ToNumpy(),
                 T.ToTensor()
@@ -175,37 +230,39 @@ class VALI(BaseDataset):
             K[0] = K[0] * _scale
             K[1] = K[1] * _scale
         else:
-            _scale = 4# np.random.uniform(1.0, 1.5)
-            scale = int(self.height * _scale)
+            _scale = 1  # np.random.uniform(1.0, 1.5)
+            scale = int(self.height * _scale * self.ratio)
             t_rgb = T.Compose([
-                T.Resize(scale),
-                T.CenterCrop(self.crop_size), # 不剪裁   ((self.height,self.width)),#
-                T.ToTensor(),
-                T.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
+                T.Resize(scale, interpolation = T.InterpolationMode.NEAREST),
+                T.CenterCrop(self.crop_size), # 不剪裁
+                T.ToTensor()#,
+                # T.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
             ])
 
             t_dep = T.Compose([
-                T.Resize(scale,interpolation=0),
-                T.CenterCrop(self.crop_size), # ((self.height,self.width)),#
+                T.Resize(scale, interpolation = T.InterpolationMode.NEAREST),
+                T.CenterCrop(self.crop_size),
                 T.ToTensor()
             ])
-
 
             rgb = t_rgb(rgb)
             dep = t_dep(dep)
             scan_dep = t_dep(scan_dep)
 
-            # dep = dep / _scale # 近大远小
-            # scan_dep = scan_dep / _scale
+            
+            dep = dep / model_ratio
+            scan_dep = scan_dep / model_ratio  # mixedai 渲染时模型放大比例+剪裁比例
 
             K = self.K.clone()
+            dep = dep / _scale  # 近大远小
+            scan_dep = scan_dep / _scale
 
         if self.depth_type == 'generate':
             dep_sp = self.get_sparse_depth(dep, self.args.num_sample)  # 稀疏深度的采样方式，后续可以通过raw depth替换。
         elif self.depth_type == 'scan':
             # scan_dep[scan_dep <5.5] = 0
             dep_sp = scan_dep
-            # dep_sp = self.get_sparse_depth(dep_sp, num_of_samples)
+            dep_sp = self.get_sparse_depth(dep_sp, num_of_samples)
 
         # rgb = rgb-rgb.mean()
 

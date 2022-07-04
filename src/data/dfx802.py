@@ -38,18 +38,18 @@ class DFX802(BaseDataset):
         else:
             self.dir = '..'  # dir_path
             self.fold = 'data/mixedaispilt/test/*'
-            self.gt_depth = sorted(glob.glob(os.path.join(self.dir, self.fold, '*_depth_gt.tiff')))
-            self.raw_dept = sorted(glob.glob(os.path.join(self.dir, self.fold, '*_depth_map.tiff')))
-            self.rgb = sorted(glob.glob(os.path.join(self.dir, self.fold, '*_bright.bmp')))            
+            self.gt_depth = sorted(glob.glob(os.path.join(self.dir, self.fold, '*_depth_gt.tiff')))#[10:20]
+            self.raw_dept = sorted(glob.glob(os.path.join(self.dir, self.fold, '*_depth_map.tiff')))#[10:20]
+            self.rgb = sorted(glob.glob(os.path.join(self.dir, self.fold, '*_bright.bmp')))#[10:20]            
         # 数据集区分
 
-        self.axletree = True
-        if self.axletree:
-            self.fold = 'data/axletree/val/*'
-            self.gt_depth = sorted(glob.glob(os.path.join(self.dir, self.fold, '*_depth_map.tiff')))
-            self.raw_dept = sorted(glob.glob(os.path.join(self.dir, self.fold, '*_depth_map.tiff')))
-            self.rgb = sorted(glob.glob(os.path.join(self.dir, self.fold, '*_bright.bmp'))) 
-            self.mask = sorted(glob.glob(os.path.join(self.dir, self.fold, '*_mask.png')))       
+        # self.axletree = True
+        # if self.axletree:
+        #     self.fold = 'data/axletree/val/*'
+        #     self.gt_depth = sorted(glob.glob(os.path.join(self.dir, self.fold, '*_depth_map.tiff')))
+        #     self.raw_dept = sorted(glob.glob(os.path.join(self.dir, self.fold, '*_depth_map.tiff')))
+        #     self.rgb = sorted(glob.glob(os.path.join(self.dir, self.fold, '*_bright.bmp'))) 
+        #     self.mask = sorted(glob.glob(os.path.join(self.dir, self.fold, '*_mask.png')))       
 
 
 
@@ -65,8 +65,9 @@ class DFX802(BaseDataset):
                                603.187/3
                                ])
         # 照片大小 需要定义
-        height, width = (400, 640)  # (720, 1280)
-        crop_size = (320,512)  # (216,384)
+        height, width = (1200, 1920)  # (720, 1280)
+        crop_size = (480,640)  # (216,384)
+        self.crop_ratio = 0.4  # 图片像素尺寸缩放
 
         self.height = height
         self.width = width
@@ -89,19 +90,19 @@ class DFX802(BaseDataset):
         return len(self.gt_depth)
     def __getitem__(self,idx):
 
-        rgb = np.array(cv2.cvtColor(cv2.imread(self.rgb[idx], 0), cv2.COLOR_GRAY2RGB))[::3, ::3, :]  # rgb模拟的三通道灰度图
-        dep = np.array(cv2.imread(self.gt_depth[idx], 2))[::3, ::3] / 100  # 恢复的目标深度
-        scan_dep = np.array(cv2.imread(self.raw_dept[idx], 2))[::3, ::3] / 100  # 工件扫描深度图
+        rgb = np.array(cv2.cvtColor(cv2.imread(self.rgb[idx], 0), cv2.COLOR_GRAY2RGB))# rgb模拟的三通道灰度图
+        dep = np.array(cv2.imread(self.gt_depth[idx], 2))/ 100  # 恢复的目标深度
+        scan_dep = np.array(cv2.imread(self.raw_dept[idx], 2)) / 100  # 工件扫描深度图
 
-        if self.axletree:
-            rgb = np.array(cv2.cvtColor(cv2.imread(self.rgb[idx], 0), cv2.COLOR_GRAY2RGB))[400:800, 500:1420, :]  # rgb模拟的三通道灰度图
-            dep = np.array(cv2.imread(self.mask[idx], 2))[400:800, 500:1420]/100*1.2  # 恢复的目标深度
-            scan_dep = np.array(cv2.imread(self.raw_dept[idx], 2))[400:800, 500:1420]/100*1.2 # 工件扫描深度图
-            import scipy.signal as signal
-            scan_dep = signal.medfilt(scan_dep,(5,5))
-            scan_dep[dep == 0] = 0  # mask掉不用学的
-            print('max:', scan_dep.max())
-            print('shape of rgb,mask,scandep', rgb.shape, dep.shape, scan_dep.shape)
+        # if self.axletree:
+        #     rgb = np.array(cv2.cvtColor(cv2.imread(self.rgb[idx], 0), cv2.COLOR_GRAY2RGB))[400:800, 500:1420, :]  # rgb模拟的三通道灰度图
+        #     dep = np.array(cv2.imread(self.mask[idx], 2))[400:800, 500:1420]/100  # 恢复的目标深度
+        #     scan_dep = np.array(cv2.imread(self.raw_dept[idx], 2))[400:800, 500:1420]/100 # 工件扫描深度图
+        #     # import scipy.signal as signal
+        #     # scan_dep = signal.medfilt(scan_dep,(5,5))
+        #     scan_dep[dep == 0] = 0  # mask掉不用学的
+        #     print('max:', scan_dep.max())
+        #     print('shape of rgb,mask,scandep', rgb.shape, dep.shape, scan_dep.shape)
 
         scan_dep[dep == 0] = 0  # mask掉不用学的
         rgb[dep == 0] = [0, 0, 0]  # mask掉不用学的
@@ -115,7 +116,7 @@ class DFX802(BaseDataset):
 
         if self.augment and self.mode == 'train':
             _scale = np.random.uniform(1.0, 1.5)
-            scale = np.int(self.height * _scale)
+            scale = np.int(self.height * _scale * self.crop_ratio)
             degree = np.random.uniform(-90, 90.0)
             flip = np.random.uniform(0.0, 1.0)
 
@@ -130,16 +131,16 @@ class DFX802(BaseDataset):
             scan_dep = TF.rotate(scan_dep, angle=degree, resample=Image.NEAREST, fill=(0,))  # bug appear when using torchvision==0.5.0, by adding fill=(0,) fix it.
 
             t_rgb = T.Compose([
-                T.Resize(scale),
+                T.Resize(scale),  # 图片像素尺寸缩放
                 T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
-                # T.CenterCrop(self.crop_size),
+                T.CenterCrop(self.crop_size),
                 T.ToTensor(),
                 T.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),  # 灰度图删除标准化
             ])
 
             t_dep = T.Compose([
-                T.Resize(scale),
-                # T.CenterCrop(self.crop_size),
+                T.Resize(scale, interpolation=0),
+                T.CenterCrop(self.crop_size),
                 self.ToNumpy(),
                 T.ToTensor()
             ])
@@ -161,16 +162,17 @@ class DFX802(BaseDataset):
             K[0] = K[0] * _scale
             K[1] = K[1] * _scale
         else:
+            scale = np.int(self.height * self.crop_ratio)
             t_rgb = T.Compose([
-                T.Resize(self.height),
-                # T.CenterCrop(self.crop_size), # 不剪裁
+                T.Resize(scale),
+                T.CenterCrop(self.crop_size), # 不剪裁
                 T.ToTensor(),
                 T.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
             ])
 
             t_dep = T.Compose([
-                T.Resize(self.height),
-                # T.CenterCrop(self.crop_size),
+                T.Resize(scale, interpolation=0),
+                T.CenterCrop(self.crop_size),
                 self.ToNumpy(),
                 T.ToTensor()
             ])
@@ -185,13 +187,16 @@ class DFX802(BaseDataset):
             dep = t_dep(dep)
             scan_dep = t_dep(scan_dep)
 
-
             K = self.K.clone()
 
         if self.depth_type == 'generate':
             dep_sp = self.get_sparse_depth(dep, self.args.num_sample)  # 稀疏深度的采样方式，后续可以通过raw depth替换。
         elif self.depth_type == 'scan':
             dep_sp = scan_dep
+
+        model_ration = 3  # mixedai 渲染时模型放大比例, 不使用渲染数据时删除
+        dep = dep/model_ration
+        dep_sp = dep_sp/model_ration
 
         # rgb = rgb-rgb.mean()
 

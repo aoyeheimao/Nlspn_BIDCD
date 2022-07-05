@@ -1,3 +1,4 @@
+from this import d
 from torch.utils.data import Dataset
 import numpy as np
 import glob
@@ -18,6 +19,7 @@ from PIL import Image
 import torch
 import torchvision.transforms as T
 import torchvision.transforms.functional as TF
+import warnings
 
 
 
@@ -94,21 +96,31 @@ class RENDER(BaseDataset):
         scan_dep[mask == 0] = 0  # mask掉背景
         dep[mask == 0] = 0
         rgb[mask == 0] = [0, 0, 0]
-        num_of_samples = int(np.sum(dep != 0) * 0.1)  # 缺失90%
+
 
          # 给扫描深度在模拟的基础上添加扰动（暂时使用的方法）
         noise_range = dep.max() - dep[dep != 0].min()
-        noise = noise_range * (np.random.normal(0, 10, size=dep.shape)) * 0.01  # 8%正态的随机扰动
+
+        if self.augment and self.mode == 'train':
+            noise_ratio = np.random.uniform(0.002, 0.006)
+        else:
+            noise_ratio = 0.004
+
+        noise = noise_range * (np.random.normal(0, 10, size=dep.shape)) * noise_ratio  # 0.5%正态的10方差随机扰动
         noise[dep == 0] = 0
         scan_dep = scan_dep + noise
+
+        dep_tmp = dep
 
         rgb = Image.fromarray(rgb, mode='RGB')
         dep = Image.fromarray(dep.astype('float32'), mode='F')
         scan_dep = Image.fromarray(scan_dep.astype('float32'), mode='F')
+        warnings.filterwarnings('ignore')
         # print(dep.size,rgb.size)
 
         if self.augment and self.mode == 'train':
-            _scale = np.random.uniform(0.5, 1.5)
+            num_of_samples = int(np.sum(dep_tmp != 0) * np.random.uniform(0.1, 0.9))  # 缺失20-80%
+            _scale = np.random.uniform(0.8, 1.5)
             scale = np.int(self.height * _scale)
             degree = np.random.uniform(-90, 90.0)
             flip = np.random.uniform(0.0, 1.0)
@@ -126,7 +138,7 @@ class RENDER(BaseDataset):
                                  fill=(0,))  # bug appear when using torchvision==0.5.0, by adding fill=(0,) fix it.
 
             t_rgb = T.Compose([
-                T.Resize(scale),
+                T.Resize(scale,interpolation = T.InterpolationMode.NEAREST),
                 T.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4),
                 T.CenterCrop(self.crop_size),
                 T.ToTensor(),
@@ -134,7 +146,7 @@ class RENDER(BaseDataset):
             ])
 
             t_dep = T.Compose([
-                T.Resize(scale,interpolation=0),
+                T.Resize(scale,interpolation = T.InterpolationMode.NEAREST),
                 T.CenterCrop(self.crop_size),
                 self.ToNumpy(),
                 T.ToTensor()
@@ -152,20 +164,22 @@ class RENDER(BaseDataset):
 
             dep = dep / _scale  # 近大远小
             scan_dep = scan_dep / _scale
+            noise_range = noise_range / _scale
 
             K = self.K.clone()
             K[0] = K[0] * _scale
             K[1] = K[1] * _scale
         else:
+            num_of_samples = int(np.sum(dep_tmp != 0) *0.5)  # 缺失20-80%
             t_rgb = T.Compose([
-                T.Resize(self.height),
+                T.Resize(self.height, interpolation= T.InterpolationMode.NEAREST),
                 # T.CenterCrop(self.crop_size), # 不剪裁
                 T.ToTensor(),
                 T.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
             ])
 
             t_dep = T.Compose([
-                T.Resize(self.height),
+                T.Resize(self.height, interpolation= T.InterpolationMode.NEAREST),
                 # T.CenterCrop(self.crop_size),
                 self.ToNumpy(),
                 T.ToTensor()
@@ -184,19 +198,20 @@ class RENDER(BaseDataset):
             K = self.K.clone()
 
         if self.depth_type == 'generate':
-            dep_sp = self.get_sparse_depth(dep, self.args.num_sample)  # 稀疏深度的采样方式，后续可以通过raw depth替换。
+            dep_sp = self.get_sparse_depth(dep_sp, num_of_samples, noise_range)  # 稀疏深度的采样方式，后续可以通过raw depth替换。
         elif self.depth_type == 'scan':
             dep_sp = scan_dep
         elif self.depth_type == 'scan+generate':  # 先散斑再下采样
             dep_sp = scan_dep
-            dep_sp = self.get_sparse_depth(dep_sp, num_of_samples)
+            dep_sp = self.get_sparse_depth(dep_sp, num_of_samples, noise_range)
 
 
         output = {'rgb': rgb, 'dep': dep_sp, 'gt': dep, 'K': K}
 
         return output
 
-    def get_sparse_depth(self, dep, num_sample):
+    def get_sparse_depth(self, dep, num_sample, noise_range):
+
         channel, height, width = dep.shape
 
         assert channel == 1
@@ -214,7 +229,29 @@ class RENDER(BaseDataset):
 
         dep_sp = dep * mask.type_as(dep)
 
-        return dep_sp
+        ###  大离群噪声
+        num_nosie_sample = int(num_sample*0.02)
+        noise_alpha = [3, -3, 5, -5, 10, -10]
+        i=1
+        for a in noise_alpha:
+            noise_value = a * noise_range
+
+            idx_nnz = torch.nonzero(dep.view(-1) > 0.0001, as_tuple=False)
+            num_idx = len(idx_nnz)
+            idx_sample = torch.randperm(num_idx)[:num_nosie_sample]
+
+            idx_nnz = idx_nnz[idx_sample[:]]
+
+            mask = torch.zeros((channel * height * width))
+            mask[idx_nnz] = noise_value
+            mask = mask.view((channel, height, width))
+
+            dep_sp = dep_sp + mask.type_as(dep)
+            if i //2 == i/2:
+                num_nosie_sample = int(num_nosie_sample*0.5)
+            i = i+1
+        ###
+        return torch.clamp(dep_sp,0,999999)
 
     def show_data(self, item):
 

@@ -347,13 +347,14 @@ def train(gpu, args):
 
             writer_val.update(epoch, sample, output)
             print('')
-            if tmp_loss <= min_loss or epoch % 10 == 0:
-                min_loss = tmp_loss
-                print("save val with loss:", min_loss)
+            if tmp_loss <= min_loss or epoch % 50 == 0:
+                if tmp_loss <= min_loss:
+                    min_loss = tmp_loss
+                print("save val with loss:", tmp_loss)
                 writer_val.save(epoch, batch, sample, output)
 
                 net.train()
-                print("save model with loss:", min_loss)
+                print("save model with loss:", tmp_loss)
                 torch.save(state, '{}/model_{:05d}.pt'.format(args.save_dir, epoch))  #保存模型
                 net.eval()
             else:

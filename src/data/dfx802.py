@@ -38,9 +38,9 @@ class DFX802(BaseDataset):
         else:
             self.dir = '..'  # dir_path
             self.fold = 'data/mixedaispilt/test/*'
-            self.gt_depth = sorted(glob.glob(os.path.join(self.dir, self.fold, '*_depth_gt.tiff')))
-            self.raw_dept = sorted(glob.glob(os.path.join(self.dir, self.fold, '*_depth_map.tiff')))
-            self.rgb = sorted(glob.glob(os.path.join(self.dir, self.fold, '*_bright.bmp')))            
+            self.gt_depth = sorted(glob.glob(os.path.join(self.dir, self.fold, '*_depth_gt.tiff')))#[10:20]
+            self.raw_dept = sorted(glob.glob(os.path.join(self.dir, self.fold, '*_depth_map.tiff')))#[10:20]
+            self.rgb = sorted(glob.glob(os.path.join(self.dir, self.fold, '*_bright.bmp')))#[10:20]            
         # 数据集区分
 
         # self.axletree = True
@@ -90,19 +90,19 @@ class DFX802(BaseDataset):
         return len(self.gt_depth)
     def __getitem__(self,idx):
 
-        rgb = np.array(cv2.cvtColor(cv2.imread(self.rgb[idx], 0), cv2.COLOR_GRAY2RGB))[::3, ::3, :]  # rgb模拟的三通道灰度图
-        dep = np.array(cv2.imread(self.gt_depth[idx], 2))[::3, ::3] / 100  # 恢复的目标深度
-        scan_dep = np.array(cv2.imread(self.raw_dept[idx], 2))[::3, ::3] / 100  # 工件扫描深度图
+        rgb = np.array(cv2.cvtColor(cv2.imread(self.rgb[idx], 0), cv2.COLOR_GRAY2RGB))  # rgb模拟的三通道灰度图
+        dep = np.array(cv2.imread(self.gt_depth[idx], 2))/ 100  # 恢复的目标深度
+        scan_dep = np.array(cv2.imread(self.raw_dept[idx], 2))/ 100  # 工件扫描深度图
 
-        if self.axletree:
-            rgb = np.array(cv2.cvtColor(cv2.imread(self.rgb[idx], 0), cv2.COLOR_GRAY2RGB))[400:800, 500:1420, :]  # rgb模拟的三通道灰度图
-            dep = np.array(cv2.imread(self.mask[idx], 2))[400:800, 500:1420]/100  # 恢复的目标深度
-            scan_dep = np.array(cv2.imread(self.raw_dept[idx], 2))[400:800, 500:1420]/100 # 工件扫描深度图
-            # import scipy.signal as signal
-            # scan_dep = signal.medfilt(scan_dep,(5,5))
-            scan_dep[dep == 0] = 0  # mask掉不用学的
-            print('max:', scan_dep.max())
-            print('shape of rgb,mask,scandep', rgb.shape, dep.shape, scan_dep.shape)
+        # if self.axletree:
+        #     rgb = np.array(cv2.cvtColor(cv2.imread(self.rgb[idx], 0), cv2.COLOR_GRAY2RGB))[400:800, 500:1420, :]  # rgb模拟的三通道灰度图
+        #     dep = np.array(cv2.imread(self.mask[idx], 2))[400:800, 500:1420]/100  # 恢复的目标深度
+        #     scan_dep = np.array(cv2.imread(self.raw_dept[idx], 2))[400:800, 500:1420]/100 # 工件扫描深度图
+        #     # import scipy.signal as signal
+        #     # scan_dep = signal.medfilt(scan_dep,(5,5))
+        #     scan_dep[dep == 0] = 0  # mask掉不用学的
+        #     print('max:', scan_dep.max())
+        #     print('shape of rgb,mask,scandep', rgb.shape, dep.shape, scan_dep.shape)
 
         scan_dep[dep == 0] = 0  # mask掉不用学的
         rgb[dep == 0] = [0, 0, 0]  # mask掉不用学的
@@ -162,16 +162,16 @@ class DFX802(BaseDataset):
             K[0] = K[0] * _scale
             K[1] = K[1] * _scale
         else:
-            scale = np.int(self.height * scale)
+            scale = np.int(self.height * self.crop_ratio)
             t_rgb = T.Compose([
-                T.Resize(self.height * scale),
+                T.Resize(scale),
                 T.CenterCrop(self.crop_size), # 不剪裁
                 T.ToTensor(),
                 T.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
             ])
 
             t_dep = T.Compose([
-                T.Resize(self.height * scale, interpolation=0),
+                T.Resize(scale, interpolation=0),
                 T.CenterCrop(self.crop_size),
                 self.ToNumpy(),
                 T.ToTensor()
@@ -187,17 +187,17 @@ class DFX802(BaseDataset):
             dep = t_dep(dep)
             scan_dep = t_dep(scan_dep)
 
-            model_ration = 3
-
-            dep = dep/model_ration
-            scan_dep = scan_dep/model_ration  # mixedai 渲染时模型放大比例
-
+            
             K = self.K.clone()
 
         if self.depth_type == 'generate':
             dep_sp = self.get_sparse_depth(dep, self.args.num_sample)  # 稀疏深度的采样方式，后续可以通过raw depth替换。
         elif self.depth_type == 'scan':
             dep_sp = scan_dep
+
+        model_ration = 3  # mixedai 渲染时模型放大比例
+        dep = dep/model_ration
+        dep_sp = dep_sp/model_ration
 
         # rgb = rgb-rgb.mean()
 

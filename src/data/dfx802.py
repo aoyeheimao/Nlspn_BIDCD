@@ -90,7 +90,7 @@ class DFX802(BaseDataset):
         return len(self.gt_depth)
     def __getitem__(self,idx):
 
-        rgb = np.array(cv2.cvtColor(cv2.imread(self.rgb[idx], 0), cv2.COLOR_GRAY2RGB))  # rgb模拟的三通道灰度图
+        rgb = np.array(cv2.cvtColor(cv2.imread(self.rgb[idx],  0), cv2.COLOR_GRAY2RGB))  # rgb模拟的三通道灰度图
         dep = np.array(cv2.imread(self.gt_depth[idx], 2))/ 100  # 恢复的目标深度
         scan_dep = np.array(cv2.imread(self.raw_dept[idx], 2))/ 100  # 工件扫描深度图
 

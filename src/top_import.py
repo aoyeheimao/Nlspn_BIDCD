@@ -38,6 +38,15 @@ torch.cuda.manual_seed_all(args_config.seed)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
+import pynvml
+pynvml.nvmlInit()
+
+handle = pynvml.nvmlDeviceGetHandleByIndex(0)# 这里的0是GPU id
+meminfo = pynvml.nvmlDeviceGetMemoryInfo(handle)
+print('total(Mb):', meminfo.total/(1024**2)) #第1块显卡总的显存大小
+print('used(Mb):', meminfo.used/(1024**2))#这里是字节bytes，所以要想得到以兆M为单位就需要除以1024**2
+print('free(Mb):', meminfo.free/(1024**2)) #第1块显卡剩余显存大小
+
 def check_args(args):
     if args.batch_size < args.num_gpus:
         print("batch_size changed : {} -> {}".format(args.batch_size,
@@ -62,6 +71,7 @@ def check_args(args):
 
 def main(args):
     print('start')
+    exit(0)
     gpu = 0
 
     dist.init_process_group(backend='nccl', init_method='env://',   # 'tcp://{master_ip}:{master_port}'.format(master_ip='127.0.0.1', master_port='10000')

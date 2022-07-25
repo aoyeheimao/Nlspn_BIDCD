@@ -24,11 +24,12 @@ class L1Loss(nn.Module):
         self.args = args
         self.t_valid = 0.0001
 
-    def forward(self, pred, gt):
+    def forward(self, pred, gt, mask):
         gt = torch.clamp(gt, min=0, max=self.args.max_depth)
         pred = torch.clamp(pred, min=0, max=self.args.max_depth)
 
-        mask = (gt > self.t_valid).type_as(pred).detach()
+        # mask = (gt > self.t_valid).type_as(pred).detach()
+        mask = mask.type_as(pred).detach()
 
         d = torch.abs(pred - gt) * mask
 

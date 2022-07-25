@@ -37,10 +37,10 @@ class NLSPNLoss(BaseLoss):
 
             pred = output['pred']
             gt = sample['gt']
-
+            mask = sample['mask']
 
             if loss_type in ['L1', 'L2']:
-                loss_tmp = loss_func(pred, gt)
+                loss_tmp = loss_func(pred, gt, mask)
             else:
                 raise NotImplementedError
 

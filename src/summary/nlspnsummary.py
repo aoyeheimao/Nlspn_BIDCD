@@ -20,7 +20,7 @@ import numpy as np
 import os
 from PIL import Image
 
-cm = plt.get_cmap('plasma')
+cm = plt.get_cmap('gray')
 
 
 class NLSPNSummary(BaseSummary):
@@ -95,9 +95,20 @@ class NLSPNSummary(BaseSummary):
         rgb.mul_(self.img_std.type_as(rgb)).add_(self.img_mean.type_as(rgb))
         rgb = rgb.data.cpu().numpy()
 
-        dep = sample['dep'].detach().data.cpu().numpy()
-        gt = sample['gt'].detach().data.cpu().numpy()
-        pred = output['pred'].detach().data.cpu().numpy()
+
+        dep = sample['rgb'].detach()
+        dep.mul_(self.img_std.type_as(dep)).add_(self.img_mean.type_as(dep))
+        dep = dep.data.cpu().numpy()
+
+        img_std = torch.tensor((0.229)).view(1, 1, 1)
+        img_mean = torch.tensor((0.485)).view(1, 1, 1)
+        gt = sample['gt'].detach()
+        gt.mul_(img_std.type_as(gt)).add_(img_mean.type_as(gt))
+        gt = gt.data.cpu().numpy()
+
+        pred = output['pred'].detach()
+        pred.mul_(img_std.type_as(pred)).add_(img_mean.type_as(pred))
+        pred = pred.data.cpu().numpy()
 
         if output['confidence'] is not None:
             confidence = output['confidence'].data.cpu().numpy()
@@ -125,13 +136,13 @@ class NLSPNSummary(BaseSummary):
         for b in range(0, num_summary):
             rgb_tmp = rgb[b, :, :, :]
             dep_tmp = dep[b, 0, :, :]
-            gt_tmp = gt[b, 0, :, :]
-            pred_tmp = pred[b, 0, :, :]
+            gt_tmp = gt[b, 0, :, :] * 255
+            pred_tmp = pred[b, 0, :, :] * 255
             confidence_tmp = confidence[b, 0, :, :]
 
-            dep_tmp = 255.0 * dep_tmp / self.args.max_depth
-            gt_tmp = 255.0 * gt_tmp / self.args.max_depth
-            pred_tmp = 255.0 * pred_tmp / self.args.max_depth
+            # dep_tmp = 255.0 * dep_tmp / self.args.max_depth
+            # gt_tmp = 255.0 * gt_tmp / self.args.max_depth
+            # pred_tmp = 255.0 * pred_tmp / self.args.max_depth
             confidence_tmp = 255.0 * confidence_tmp
 
             dep_tmp = cm(dep_tmp.astype('uint8'))
@@ -190,7 +201,7 @@ class NLSPNSummary(BaseSummary):
                 list_feat = output['pred_inter']
 
                 rgb = sample['rgb'].detach()
-                dep = sample['dep'].detach()
+                dep = sample['rgb'].detach()
                 pred = output['pred'].detach()
                 gt = sample['gt'].detach()
 

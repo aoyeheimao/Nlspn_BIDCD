@@ -28,9 +28,9 @@ parser.add_argument('--dir_data',
                     help='path to dataset')
 parser.add_argument('--data_name',
                     type=str,
-                    default='NYU',
+                    default='GRAY01',
                     # default='KITTIDC',
-                    choices=('NYU', 'KITTIDC', 'RGBDDATASET','DFX802', 'RENDER', 'VALI'),
+                    choices=('NYU', 'KITTIDC', 'RGBDDATASET','DFX802', 'RENDER', 'VALI', 'GRAY01'),
                     help='dataset name')
 parser.add_argument('--split_json',
                     type=str,
@@ -67,7 +67,7 @@ parser.add_argument('--seed',
                     help='random seed point')
 parser.add_argument('--gpus',
                     type=str,
-                    default="0,1,2,3",
+                    default="0",
                     help='visible GPUs')
 parser.add_argument('--port',
                     type=str,
@@ -123,7 +123,7 @@ parser.add_argument('--affinity_gamma',
                          '(gamma = affinity_gamma * number of neighbors')
 parser.add_argument('--conf_prop',
                     action='store_true',
-                    default=True,
+                    default=False,
                     help='confidence for propagation')
 parser.add_argument('--no_conf',
                     action='store_false',
@@ -142,7 +142,7 @@ parser.add_argument('--loss',
                     help='loss function configuration')
 parser.add_argument('--opt_level',
                     type=str,
-                    default='O0',  # O0 baseline, O1 for best efficiency
+                    default='O1',  # O0 baseline, O1 for best efficiency
                     choices=('O0', 'O1', 'O2', 'O3'))
 parser.add_argument('--pretrain',
                     type=str,

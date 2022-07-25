@@ -218,6 +218,7 @@ class NLSPNModel(nn.Module):
         # Encoder
         self.conv1_rgb = conv_bn_relu(3, 48, kernel=3, stride=1, padding=1,
                                       bn=False)
+
         self.conv1_dep = conv_bn_relu(1, 16, kernel=3, stride=1, padding=1,
                                       bn=False)
 
@@ -333,7 +334,7 @@ class NLSPNModel(nn.Module):
 
     def forward(self, sample):
         rgb = sample['rgb']
-        dep = sample['dep']
+        dep = sample['rgb'][:, 0:1, :, :]
 
         # Encoding
         fe1_rgb = self.conv1_rgb(rgb)
